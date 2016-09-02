@@ -1,15 +1,29 @@
-var React = require('react'),
-	Field = require('../Field');
+import Field from '../Field';
+import React from 'react';
+import { FormInput } from 'elemental';
 
 module.exports = Field.create({
-	
 	displayName: 'TextareaField',
-	
-	renderField: function() {
-		var styles = {
-			height: this.props.height
+	statics: {
+		type: 'Textarea',
+	},
+	renderField () {
+		const { height, path, style, value } = this.props;
+
+		const styles = {
+			height: height,
+			...style,
 		};
-		return <textarea name={this.props.path} styles={styles} ref="focusTarget" value={this.props.value} onChange={this.valueChanged} autoComplete="off" className="form-control" />;
-	}
-	
+		return (
+			<FormInput
+				autoComplete="off"
+				multiline
+				name={this.getInputName(path)}
+				onChange={this.valueChanged}
+				ref="focusTarget"
+				style={styles}
+				value={value}
+			/>
+		);
+	},
 });

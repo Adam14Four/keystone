@@ -1,26 +1,44 @@
-var tinymce = require('tinymce'),
-	React = require('react'),
-	Field = require('../Field'),
-	_ = require('underscore');
+import _ from 'lodash';
+import Field from '../Field';
+import React from 'react';
+import tinymce from 'tinymce';
+import { FormInput } from 'elemental';
+
+/**
+ * TODO:
+ * - Remove dependency on underscore
+ */
 
 var lastId = 0;
 
-function getId() {
+function getId () {
 	return 'keystone-html-' + lastId++;
 }
 
+// Workaround for #2834 found here https://github.com/tinymce/tinymce/issues/794#issuecomment-203701329
+function removeTinyMCEInstance (editor) {
+	var oldLength = tinymce.editors.length;
+	tinymce.remove(editor);
+	if (oldLength === tinymce.editors.length) {
+		tinymce.editors.remove(editor);
+	}
+}
+
 module.exports = Field.create({
-	
+
 	displayName: 'HtmlField',
-	
-	getInitialState: function() {
+	statics: {
+		type: 'Html',
+	},
+
+	getInitialState () {
 		return {
 			id: getId(),
-			isFocused: false
+			isFocused: false,
 		};
 	},
 
-	initWysiwyg: function() {
+	initWysiwyg () {
 		if (!this.props.wysiwyg) return;
 
 		var self = this;
@@ -37,72 +55,72 @@ module.exports = Field.create({
 		tinymce.init(opts);
 	},
 
-	componentDidUpdate: function(prevProps, prevState) {
+	componentDidUpdate (prevProps, prevState) {
 		if (prevState.isCollapsed && !this.state.isCollapsed) {
 			this.initWysiwyg();
 		}
-		
-		if (_.isEqual(this.props.dependsOn, this.props.currentDependencies)
-			&& !_.isEqual(this.props.currentDependencies, prevProps.currentDependencies)) {
-			var instance = tinymce.get(prevState.id);
-			if (instance) {
-				tinymce.EditorManager.execCommand('mceRemoveEditor', true, prevState.id);
-				this.initWysiwyg();
-			} else {
+
+		if (!_.isEqual(this.props.currentDependencies, prevProps.currentDependencies)) {
+			if (_.isEqual(prevProps.dependsOn, prevProps.currentDependencies)) {
+				var instance = tinymce.get(prevState.id);
+				if (instance) {
+					removeTinyMCEInstance(instance);
+				}
+			}
+
+			if (_.isEqual(this.props.dependsOn, this.props.currentDependencies)) {
 				this.initWysiwyg();
 			}
 		}
 	},
 
-	componentDidMount: function() {
+	componentDidMount () {
 		this.initWysiwyg();
 	},
-	
-	componentWillReceiveProps: function(nextProps) {
+
+	componentWillReceiveProps (nextProps) {
 		if (this.editor && this._currentValue !== nextProps.value) {
 			this.editor.setContent(nextProps.value);
 		}
 	},
-	
-	focusChanged: function(focused) {
+
+	focusChanged (focused) {
 		this.setState({
-			isFocused: focused
+			isFocused: focused,
 		});
 	},
 
-	valueChanged: function () {
+	valueChanged  (event) {
 		var content;
 		if (this.editor) {
 			content = this.editor.getContent();
-		} else if (this.refs.editor) {
-			content = this.refs.editor.getDOMNode().value;
 		} else {
-			return;
+			content = event.target.value;
 		}
 
 		this._currentValue = content;
 		this.props.onChange({
 			path: this.props.path,
-			value: content
+			value: content,
 		});
 	},
 
-	getOptions: function() {
-		var plugins = ['code', 'link'],
-			options = _.defaults(
+	getOptions () {
+		var plugins = ['code', 'link'];
+		var options = Object.assign(
 				{},
-				this.props.wysiwyg,
-				Keystone.wysiwyg.options
-			),
-			toolbar = options.overrideToolbar ? '' : 'bold italic | alignleft aligncenter alignright | bullist numlist | outdent indent | link',
-			i;
+				Keystone.wysiwyg.options,
+				this.props.wysiwyg
+			);
+		var toolbar = options.overrideToolbar ? '' : 'bold italic | alignleft aligncenter alignright | bullist numlist | outdent indent | removeformat | link ';
+		var i;
 
 		if (options.enableImages) {
 			plugins.push('image');
 			toolbar += ' | image';
 		}
 
-		if (options.enableCloudinaryUploads) {
+		if (options.enableCloudinaryUploads || options.enableS3Uploads) {
 			plugins.push('uploadimage');
 			toolbar += options.enableImages ? ' uploadimage' : ' | uploadimage';
 		}
@@ -124,66 +142,62 @@ module.exports = Field.create({
 			var importcssOptions = {
 				content_css: options.importcss,
 				importcss_append: true,
-				importcss_merge_classes: true
+				importcss_merge_classes: true,
 			};
-			
-			_.extend(options.additionalOptions, importcssOptions);
+
+			Object.assign(options.additionalOptions, importcssOptions);
 		}
-		
+
 		if (!options.overrideToolbar) {
 			toolbar += ' | code';
 		}
 
 		var opts = {
 			selector: '#' + this.state.id,
-			toolbar:  toolbar,
-			plugins:  plugins,
-			menubar:  options.menubar || false,
-			skin:     options.skin || 'keystone'
+			toolbar: toolbar,
+			plugins: plugins,
+			menubar: options.menubar || false,
+			skin: options.skin || 'keystone',
 		};
 
 		if (this.shouldRenderField()) {
-			opts.uploadimage_form_url = '/keystone/api/cloudinary/upload';
+			opts.uploadimage_form_url = options.enableS3Uploads ? Keystone.adminPath + '/api/s3/upload' : Keystone.adminPath + '/api/cloudinary/upload';
 		} else {
-			_.extend(opts, {
+			Object.assign(opts, {
 				mode: 'textareas',
 				readonly: true,
 				menubar: false,
 				toolbar: 'code',
-				statusbar: false
+				statusbar: false,
 			});
 		}
 
-		if (options.additionalOptions){
-			_.extend(opts, options.additionalOptions);
+		if (options.additionalOptions) {
+			Object.assign(opts, options.additionalOptions);
 		}
 
 		return opts;
 	},
 
-	getFieldClassName: function() {
+	getFieldClassName () {
 		var className = this.props.wysiwyg ? 'wysiwyg' : 'code';
 		return className;
 	},
-	
-	renderEditor: function(readOnly) {
+
+	renderField () {
 		var className = this.state.isFocused ? 'is-focused' : '';
 		var style = {
-			height: this.props.height
+			height: this.props.height,
 		};
 		return (
 			<div className={className}>
-				<textarea ref='editor' style={style} onChange={this.valueChanged} id={this.state.id} className={this.getFieldClassName()} name={this.props.path} readOnly={readOnly} value={this.props.value}></textarea>
+				<FormInput multiline style={style} onChange={this.valueChanged} id={this.state.id} className={this.getFieldClassName()} name={this.getInputName(this.props.path)} value={this.props.value} />
 			</div>
 		);
 	},
 
-	renderField: function() {
-		return this.renderEditor();
+	renderValue () {
+		return <FormInput multiline noedit value={this.props.value} />;
 	},
-	
-	renderValue: function() {
-		return this.renderEditor(true);
-	}
-	
+
 });
